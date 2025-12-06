@@ -1,12 +1,60 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
-    <title>Error</title>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <meta content="noindex, nofollow" name="robots">
+    <title th:text="${errorTitle} ?: 'Error' + ' - SFTP File Manager'">Error - SFTP File Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    </style>
 </head>
-<body>
-    <h2>Terjadi kesalahan</h2>
-    <p>Halaman yang Anda minta tidak ditemukan atau ada kesalahan format.</p>
-    <p th:text="${message}"></p>
-    <p><a href="/files">Kembali ke beranda</a></p>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+<div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md border border-gray-200 text-center">
+    <div class="mb-6">
+            <span class="text-6xl" th:switch="${statusCode}">
+                <span th:case="403">&#128683;</span>
+                <span th:case="404">&#128270;</span>
+                <span th:case="500">&#9888;&#65039;</span>
+                <span th:case="*">&#128679;</span>
+            </span>
+    </div>
+
+    <h1 class="text-3xl font-bold text-gray-800 mb-4" th:text="${errorTitle} ?: 'Error'">Error</h1>
+
+    <p class="text-gray-600 mb-2" th:text="${errorMessage} ?: 'An unexpected error occurred.'">
+        An unexpected error occurred.
+    </p>
+
+    <p class="text-gray-400 text-sm mb-4" th:if="${statusCode}">
+        Error Code: <span th:text="${statusCode}">500</span>
+    </p>
+
+    <p class="text-gray-400 text-xs mb-6" th:if="${requestId}">
+        Reference ID: <span th:text="${requestId}">-</span>
+    </p>
+
+    <div class="space-y-3">
+        <a class="block w-full px-6 py-3 bg-indigo-600 text-white font-medium rounded-md
+                                    hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500
+                                    focus:ring-offset-2 transition duration-150 ease-in-out shadow-md" href="/files">
+            Go to Files
+        </a>
+        <a class="block w-full px-6 py-3 bg-gray-200 text-gray-700 font-medium rounded-md
+                                    hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400
+                                    focus:ring-offset-2 transition duration-150 ease-in-out" href="/login">
+            Back to Login
+        </a>
+    </div>
+
+    <p class="mt-6 text-gray-400 text-xs" th:if="${timestamp}">
+        <span th:text="${#temporals.format(timestamp, 'yyyy-MM-dd HH:mm:ss')}">2024-01-01 00:00:00</span>
+    </p>
+</div>
 </body>
 </html>

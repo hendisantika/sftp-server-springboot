@@ -1,6 +1,6 @@
 package com.sftp.config;
 
-
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -13,86 +13,131 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Configuration
-@EnableWebSecurity // Mengaktifkan fitur keamanan web Spring Security
+@EnableWebSecurity
 public class SftpSecurityConfig implements WebMvcConfigurer {
+
+    @Value("${app.cors.allowed-origins:http://localhost:8080}")
+    private String allowedOrigins;
+
+    @Value("${app.session.timeout-minutes:30}")
+    private int sessionTimeoutMinutes;
+
+    @Value("${app.session.max-sessions:1}")
+    private int maxSessions;
+
+    // Web users configuration (format: username:password:role,username:password:role)
+    @Value("${app.web.users:}")
+    private String webUsersConfig;
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/files/delete/**")
-                .allowedOrigins("http://localhost:8080") // ganti sesuai asal frontend
-                .allowedMethods("DELETE");
+        registry.addMapping("/files/**")
+                .allowedOrigins(allowedOrigins.split(","))
+                .allowedMethods("GET", "POST", "DELETE")
+                .allowedHeaders("*")
+                .allowCredentials(true)
+                .maxAge(3600);
     }
-    // Konfigurasi Filter Chain Keamanan HTTP
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-        		.csrf(csrf -> csrf.ignoringRequestMatchers("/public/**"))	
+                // CSRF protection - enabled for all state-changing operations
+                .csrf(csrf -> csrf
+                        .ignoringRequestMatchers("/api/**") // Only disable for API endpoints if needed
+                )
+                // Security headers
+                .headers(headers -> headers
+                        .frameOptions(frame -> frame.deny())
+                        .contentTypeOptions(content -> {
+                        })
+                        .xssProtection(xss -> xss.disable()) // Modern browsers don't need this
+                        .referrerPolicy(referrer -> referrer
+                                .policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+                        .permissionsPolicy(permissions -> permissions
+                                .policy("geolocation=(), microphone=(), camera=()"))
+                )
             .authorizeHttpRequests(authorize -> authorize
-                // Izinkan akses tanpa otentikasi ke halaman home dan aset statis
-                .requestMatchers("/", "/home", "/css/**", "/js/**", "/images/**", "/files/delete/**", "/files/upload").permitAll()
-                // Semua request lainnya memerlukan otentikasi
+                    .requestMatchers("/", "/home", "/login", "/css/**", "/js/**", "/images/**", "/error").permitAll()
+                    .requestMatchers("/files/**").authenticated()
+                    .requestMatchers("/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )
             .formLogin(form -> form
-                // Tentukan URL halaman login kustom
                 .loginPage("/login")
-                // Izinkan akses tanpa otentikasi ke halaman login
                 .permitAll()
-                // Redirect ke /secured setelah login berhasil (opsional)
                 .defaultSuccessUrl("/files", true)
+                    .failureUrl("/login?error=true")
             )
             .logout(logout -> logout
-                // Izinkan semua pengguna untuk mengakses URL logout
+                    .logoutUrl("/logout")
+                    .logoutSuccessUrl("/login?logout=true")
+                    .invalidateHttpSession(true)
+                    .deleteCookies("JSESSIONID")
                 .permitAll()
-                // Redirect ke halaman home setelah logout
-                .logoutSuccessUrl("/login")
-                .invalidateHttpSession(true) // Invalidasi sesi HTTP saat logout
-                .deleteCookies("JSESSIONID") // Hapus cookie sesi saat logout
             )
             .sessionManagement(session -> session
-                    // Kebijakan pembuatan sesi: IF_REQUIRED akan membuat sesi jika diperlukan (default)
                     .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
-                    // URL tujuan ketika sesi tidak valid (misalnya, sesi kedaluwarsa secara otomatis)
-                    .invalidSessionUrl("/login?expired")
-                    // Hanya izinkan 1 sesi aktif per pengguna pada satu waktu
-                    .maximumSessions(1)
-                    // Jika true, mencegah pengguna baru login jika sudah memiliki sesi aktif.
-                    // Jika false (default), sesi lama akan di-invalidate jika pengguna login lagi.
+                    .invalidSessionUrl("/login?expired=true")
+                    .maximumSessions(maxSessions)
                     .maxSessionsPreventsLogin(false)
-                    // URL tujuan ketika sesi pengguna kedaluwarsa karena maxSessions (misalnya, pengguna login dari tempat lain)
-                    .expiredUrl("/login?expired")
+                    .expiredUrl("/login?expired=true")
             );
+
         return http.build();
     }
 
-    
-    
-    // Konfigurasi UserDetailsService untuk mengelola informasi pengguna
-    // Dalam contoh ini, kita menggunakan pengguna dalam memori (in-memory users)
-    // Untuk aplikasi produksi, Anda akan mengintegrasikannya dengan database atau sistem identitas lainnya.
     @Bean
     public UserDetailsService userDetailsService() {
-        UserDetails user = User.builder()
-            .username("user")
-            .password(passwordEncoder().encode("password")) // Encode password
-            .roles("USER")
-            .build();
+        List<UserDetails> users = new ArrayList<>();
 
-        UserDetails admin = User.builder()
-            .username("admin")
-            .password(passwordEncoder().encode("adminpass")) // Encode password
-            .roles("ADMIN", "USER") // Admin memiliki kedua role
-            .build();
+        if (webUsersConfig == null || webUsersConfig.isBlank()) {
+            // Default users for development - should be overridden in production
+            users.add(User.builder()
+                    .username("user")
+                    .password(passwordEncoder().encode("password"))
+                    .roles("USER")
+                    .build());
 
-        return new InMemoryUserDetailsManager(user, admin);
+            users.add(User.builder()
+                    .username("admin")
+                    .password(passwordEncoder().encode("adminpass"))
+                    .roles("ADMIN", "USER")
+                    .build());
+        } else {
+            // Parse users from configuration: username:password:ROLE,username:password:ROLE
+            for (String userEntry : webUsersConfig.split(",")) {
+                String[] parts = userEntry.trim().split(":");
+                if (parts.length >= 2) {
+                    String username = parts[0].trim();
+                    String password = parts[1].trim();
+                    String role = parts.length > 2 ? parts[2].trim() : "USER";
+
+                    // If password doesn't start with $2a$ (BCrypt prefix), encode it
+                    String encodedPassword = password.startsWith("$2a$")
+                            ? password
+                            : passwordEncoder().encode(password);
+
+                    users.add(User.builder()
+                            .username(username)
+                            .password(encodedPassword)
+                            .roles(role.split("\\|"))
+                            .build());
+                }
+            }
+        }
+
+        return new InMemoryUserDetailsManager(users);
     }
 
-    // Bean untuk PasswordEncoder
-    // BCryptPasswordEncoder direkomendasikan untuk hashing password secara aman
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
