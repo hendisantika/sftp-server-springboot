@@ -1,18 +1,5 @@
 package com.sftp.controller;
 
-import java.io.File;
-import java.io.IOException;
-import java.net.MalformedURLException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.sql.Date;
-import java.text.DecimalFormat;
-import java.text.SimpleDateFormat;
-import java.util.Arrays;
-import java.util.List;
-import java.util.stream.Collectors;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.Resource;
@@ -29,15 +16,36 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
+import java.io.IOException;
+import java.net.MalformedURLException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.sql.Date;
+import java.text.DecimalFormat;
+import java.text.SimpleDateFormat;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
+
 @Controller
 public class FileController {
     private static final Logger logger = LoggerFactory.getLogger(FileController.class);
-    private final Path folderPath = Paths.get("c:/temp/");
+    private final Path folderPath = Paths.get(System.getProperty("java.io.tmpdir"), "sftp-files");
 
     @GetMapping("/files")
     public String listFiles(Model model) {
         File folder = folderPath.toFile();
-        List<FileInfo> files = Arrays.stream(folder.listFiles())
+
+        if (!folder.exists()) {
+            folder.mkdirs();
+        }
+
+        File[] fileArray = folder.listFiles();
+        List<FileInfo> files = fileArray == null
+                ? List.of()
+                : Arrays.stream(fileArray)
                 .filter(File::isFile)
                 .map(file -> new FileInfo(file.getName(), file.length(), file.lastModified()))
                 .collect(Collectors.toList());
@@ -137,9 +145,9 @@ public class FileController {
     }
     
     public static class FileInfo {
-        private String name;
-        private String size;
-        private String lastModified;
+        private final String name;
+        private final String size;
+        private final String lastModified;
 
         public FileInfo(String name, long sizeInBytes, long lastModifiedMillis) {
             this.name = name;
